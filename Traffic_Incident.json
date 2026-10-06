@@ -1,0 +1,1180 @@
+{
+  "name": "Traffic Incident",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "traffic-incident",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        -2624,
+        -416
+      ],
+      "id": "7b7c6588-0260-4ffb-8ca5-18aa393595ba",
+      "name": "Webhook",
+      "webhookId": "3024e386-405e-4d3a-93cc-4dcf01b71468"
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "user",
+        "authentication": "headerAuth",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        -2640,
+        -48
+      ],
+      "id": "a94cae75-357f-46c0-8e6a-bbe228797500",
+      "name": "Webhook1",
+      "webhookId": "d748da51-b8bf-46eb-b61c-8a476194ecb9",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "nGvnD2afZbDPYNz3",
+          "name": "Header Auth account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $('AI Agent2').item.json.output }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        -1120,
+        -48
+      ],
+      "id": "a31eaa5a-fb4a-45b1-bcee-6032e2776bcf",
+      "name": "Respond to Webhook"
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "test-observer",
+        "authentication": "headerAuth",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        -2640,
+        896
+      ],
+      "id": "8db47ec7-8d5f-418f-97fc-d3553dc4b456",
+      "name": "Webhook2",
+      "webhookId": "d62052c5-fddc-4545-a82e-a45f93033d95",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "nGvnD2afZbDPYNz3",
+          "name": "Header Auth account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "fc8cf733-fa0a-408f-ba7a-3000e21a4385",
+              "leftValue": "={{ $json.recent_count }}",
+              "rightValue": 8,
+              "operator": {
+                "type": "number",
+                "operation": "gte"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        -1648,
+        720
+      ],
+      "id": "a2b86383-37df-41fd-a537-90c6d2b62b31",
+      "name": "If"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO observations\n(\n    user_id,\n    road,\n    role,\n    recorded_date,\n    recorded_time,\n    observation,\n    created_at\n)\nVALUES\n(\n    '{{ $json.body.user_id }}',\n    '{{ $json.body.road }}',\n    '{{ $json.body.role }}',\n    '{{ $json.body.recorded_date }}',\n    '{{ $json.body.recorded_time.substring(0, 5) }}:00',\n    '{{ $json.body.observation }}',\n    CONVERT_TZ(UTC_TIMESTAMP(), 'UTC', 'Asia/Kolkata')\n);",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.mySql",
+      "typeVersion": 2.5,
+      "position": [
+        -2096,
+        720
+      ],
+      "id": "ed771d15-a2ca-4b5c-9800-26939bd97ff6",
+      "name": "Insert_Observation",
+      "credentials": {
+        "mySql": {
+          "id": "wNwT0cyP8PUJqltJ",
+          "name": "MySQL account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT COUNT(*) AS recent_count\nFROM observations\nWHERE user_id = '{{ $(\"Webhook2\").item.json.body.user_id }}'\nAND road = '{{ $(\"Webhook2\").item.json.body.road }}'\nAND created_at >= DATE_SUB(NOW(), INTERVAL 2 MINUTE);",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.mySql",
+      "typeVersion": 2.5,
+      "position": [
+        -1872,
+        720
+      ],
+      "id": "5fc2c014-05c0-4ae4-927a-15aea44e7791",
+      "name": "Recent_Count",
+      "credentials": {
+        "mySql": {
+          "id": "wNwT0cyP8PUJqltJ",
+          "name": "MySQL account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT\n    observation,\n    observation_count,\n    observation_count AS total_users,\n    100.00 AS percentage\nFROM\n(\n    SELECT\n        observation,\n        COUNT(*) AS observation_count\n    FROM\n    (\n        SELECT\n            user_id,\n            observation,\n            ROW_NUMBER() OVER (\n                PARTITION BY user_id\n                ORDER BY created_at DESC, id DESC\n            ) AS rn\n        FROM observations\n        WHERE road = '{{ $(\"Webhook2\").item.json.body.road }}'\n          AND recorded_date = '{{ $(\"Webhook2\").item.json.body.recorded_date }}'\n          AND TIME_FORMAT(recorded_time, '%H:%i') =\n              LEFT('{{ $(\"Webhook2\").item.json.body.recorded_time }}', 5)\n          AND classification = 'HAM'\n          AND role <> 'ADMIN'\n    ) AS latest_user_observations\n    WHERE rn = 1\n    GROUP BY observation\n    ORDER BY observation_count DESC, observation ASC\n    LIMIT 1\n) AS majority;",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.mySql",
+      "typeVersion": 2.5,
+      "position": [
+        -944,
+        1024
+      ],
+      "id": "f7151843-691f-4fe2-ac9c-624da255134c",
+      "name": "Selecting_Highest_Count",
+      "credentials": {
+        "mySql": {
+          "id": "wNwT0cyP8PUJqltJ",
+          "name": "MySQL account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "e74f7e3c-ef27-497a-a075-5936a0578216",
+              "leftValue": "={{ $json.scam_count }}",
+              "rightValue": 5,
+              "operator": {
+                "type": "number",
+                "operation": "gte"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        -960,
+        608
+      ],
+      "id": "2455310f-3129-4ce0-a7ec-dba142f0ef6d",
+      "name": "If1"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE users\nSET\n    status = 'BLOCKED',\n    blocked_until = DATE_ADD(\n        CONVERT_TZ(NOW(), 'UTC', 'Asia/Kolkata'),\n        INTERVAL 24 HOUR\n    )\nWHERE user_id = '{{ $('Webhook2').item.json.body.user_id }}';\n",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.mySql",
+      "typeVersion": 2.5,
+      "position": [
+        -720,
+        496
+      ],
+      "id": "a8b9d0b4-ec5d-4a34-8cb6-e24b974807a5",
+      "name": "Execute a SQL query4",
+      "credentials": {
+        "mySql": {
+          "id": "wNwT0cyP8PUJqltJ",
+          "name": "MySQL account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "hours"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.3,
+      "position": [
+        -1712,
+        -416
+      ],
+      "id": "29ba304c-28cb-40ff-af8d-12107a43f297",
+      "name": "Schedule Trigger"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "70dfe38d-e506-4672-a526-e9b98c1a54e9",
+              "leftValue": "={{ Number($json.percentage) }}",
+              "rightValue": 80,
+              "operator": {
+                "type": "number",
+                "operation": "gte"
+              }
+            }
+          ],
+          "combinator": "or"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        -480,
+        864
+      ],
+      "id": "92996f28-45b6-4378-9db1-ea5d51aeaa64",
+      "name": "If2"
+    },
+    {
+      "parameters": {
+        "jsCode": "const rows = $input.all();\n\nreturn [\n  {\n    json: {\n      traffic_data: rows.map(item => item.json)\n    }\n  }\n];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -2000,
+        -48
+      ],
+      "id": "ec0c6ea5-e58c-4eb7-a49f-bf03038d18b5",
+      "name": "Code in JavaScript2"
+    },
+    {
+      "parameters": {
+        "sendTo": "sarvansh1206@gmail.com",
+        "subject": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('Subject', ``, 'string') }}",
+        "message": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('Message', `You are a notification tool for the AI Traffic Management Analyst.\n\nUse this tool ONLY when the AI Agent has completed its traffic analysis and independently determined that Traffic Management needs to be alerted.\n\nThe tool is optional.\n\nDO NOT use this tool for normal traffic.\n\nDO NOT use this tool for expected recurring weekday/weekend traffic.\n\nDO NOT use this tool merely because average speed is low.\n\nDO NOT use this tool merely because vehicle count is high.\n\nWhen the AI determines that an alert is necessary, call this tool EXACTLY ONCE for the current traffic analysis.\n\nThe email must be sent as HTML.\n\nThe email should contain:\n\nTRAFFIC MANAGEMENT ALERT\n\nRoad\nDate\nTime\nCongestion Status\nSeverity\nPrediction\nReason\nRecommended Action\nSummary\n\nUse a professional and concise format.\n\nNever send more than one email for the same analysis.`, 'string') }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.gmailTool",
+      "typeVersion": 2.2,
+      "position": [
+        -1504,
+        256
+      ],
+      "id": "8e3130ba-8cb8-4f69-94bb-f73fed91e1a8",
+      "name": "Send a message in Gmail2",
+      "webhookId": "70319ca9-aacb-446e-8e6d-79547bc66559",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "wNiTUvt8M9UB0jAN",
+          "name": "Gmail account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=CURRENT TRAFFIC VALUE SELECTION RULES\n\nThe workflow can be triggered by either Webhook or Webhook1.\nOnly one webhook will be executed for a given workflow execution.\n\nYou MUST first determine which webhook has been executed.\n\nIMPORTANT:\nNever attempt to read data from an unexecuted webhook.\nNever combine values from Webhook and Webhook1.\n\n1. AVERAGE SPEED\n\nIf Webhook has been executed:\n    Use the average_speed value received from the executed Webhook as the current average speed.\n\nIf Webhook has NOT been executed:\n    Calculate the average speed using the previous traffic readings provided in the historical traffic data.\n\nUse the relevant previous historical records for the same road and similar time period.\n\nDo not use a fixed speed threshold.\n\n2. VEHICLE COUNT\n\nIf Webhook has been executed:\n    Use the vehicle_count value received from the executed Webhook as the current vehicle count.\n\nIf Webhook has NOT been executed:\n    Calculate the average vehicle count using the previous traffic readings provided in the historical traffic data.\n\nUse the relevant previous historical records for the same road and similar time period.\n\nDo not use a fixed vehicle-count threshold.\n\n3. TEMPERATURE\n\nIf Webhook has been executed:\n    Use the temperature value received from the executed Webhook.\n\nIf Webhook has NOT been executed:\n    Find the historical traffic record that is approximately 5 minutes before the current requested date and time.\n\nUse the temperature from that historical record as the current temperature.\n\nDo not calculate or average the temperature.\n\nDo not estimate the temperature.\n\nIf an exact 5-minute historical record is unavailable, use the closest available historical record before the requested time.\n\n4. HUMIDITY\n\nIf Webhook has been executed:\n    Use the humidity value received from the executed Webhook.\n\nIf Webhook has NOT been executed:\n    Find the historical traffic record that is approximately 5 minutes before the current requested date and time.\n\nUse the humidity from that historical record as the current humidity.\n\nDo not calculate or average the humidity.\n\nDo not estimate the humidity.\n\nIf an exact 5-minute historical record is unavailable, use the closest available historical record before the requested time.\n\n\nIMPORTANT DATA RULES\n\nThe historical data is provided below:\n\n{{ JSON.stringify($json?.traffic_data || []) }}\n\nWhen calculating fallback values:\n\n- Use only historical records for the same road.\n- Prefer records closest to the requested time.\n- Prefer records from the same day when available.\n- Do not use unrelated roads.\n- Do not invent missing values.\n- Do not use arbitrary fixed thresholds.\n- Do not mix current Webhook values with fallback historical values unnecessarily.\n\n\nFINAL CURRENT VALUES\n\nAfter applying the rules above, determine exactly one value for each:\n\nroad\naverage_speed\nvehicle_count\nrecorded_date\nrecorded_time\ntemperature\nhumidity\n\nThese values will be used as the CURRENT TRAFFIC values for the analysis.\n\nThen perform the traffic-congestion analysis using these selected current values against all relevant historical traffic data.\n\nThe conjestion should be in the form YES or NO.",
+        "hasOutputParser": true,
+        "options": {
+          "systemMessage": "You are an AI Traffic Management Analyst.\n\nYour primary responsibility is to analyze current traffic data against all relevant historical traffic data and determine whether the current situation requires traffic-management attention.\n\nYou have access to a Gmail tool.\n\nIMPORTANT TOOL-USAGE RULE:\n\nYou, the AI Agent, are solely responsible for deciding whether an email should be sent.\n\nDo NOT send an email for every analysis.\n\nDo NOT call the Gmail tool automatically.\n\nFirst complete the entire traffic analysis.\n\nThen make ONE decision:\n\n1. If the final severity is LOW or MEDIUM:\n   - Do NOT call Gmail.\n   - Do not send any email.\n\n2. If the final severity is HIGH or EXTREME:\n   - Call Gmail exactly ONCE.\n   - Send exactly ONE email.\n   - Do not call Gmail again for the same analysis.\n\nThere must never be more than one Gmail call during a single workflow execution.\n\nThe Gmail tool must only be called after the complete traffic analysis has been completed.\n\nIf Gmail is not required, simply return the structured traffic analysis without calling Gmail.\n\nThe Gmail tool is NOT a mandatory step.\n\nYou must decide whether Gmail is necessary based on the complete traffic analysis, not merely because the tool is available."
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 3.1,
+      "position": [
+        -1728,
+        -48
+      ],
+      "id": "dfa0bf8e-4f32-4301-b05c-960c527e6ef2",
+      "name": "AI Agent2",
+      "retryOnFail": false,
+      "executeOnce": false,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsonSchemaExample": "{\n  \"road\": \"NH44\",\n  \"average_speed\": 46.0,\n  \"vehicle_count\": 400,\n  \"recorded_date\": \"2026-09-01\",\n  \"recorded_time\": \"16:05:41\",\n  \"temperature\": 25.8,\n  \"humidity\": 33.0,\n  \"congestion\": \"Yes\",\n  \"severity\": \"LOW\",\n  \"prediction\": \"Normal traffic flow expected to continue. No congestion predicted.\",\n  \"reason\": \"Current average speed (46.00 km/h) and vehicle count (400) match historical records for NH44 exactly with zero deviation from baseline norms.\",\n  \"recommended_action\": \"No traffic management action required. Continue routine monitoring.\",\n  \"summary\": \"All current traffic metrics on NH44 are consistent with historical data.\"\n}"
+      },
+      "type": "@n8n/n8n-nodes-langchain.outputParserStructured",
+      "typeVersion": 1.3,
+      "position": [
+        -1344,
+        256
+      ],
+      "id": "402899a7-1eed-4d3e-a22a-20b939a1c757",
+      "name": "Structured Output Parser2"
+    },
+    {
+      "parameters": {
+        "model": "openrouter/free",
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenRouter",
+      "typeVersion": 1,
+      "position": [
+        -1920,
+        256
+      ],
+      "id": "5953818a-b645-436f-b337-34cb5bebc015",
+      "name": "OpenRouter Chat Model2",
+      "credentials": {
+        "openRouterApi": {
+          "id": "VRCjHFIs3w6K2sc8",
+          "name": "OpenRouter account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "a182aefe-8ab0-4216-8fa4-56e4417f5a4e",
+              "leftValue": "={{ $json.body.role }}",
+              "rightValue": "USER",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        -2320,
+        896
+      ],
+      "id": "5e9c753f-ae91-4cf9-871c-a8974c777141",
+      "name": "If4"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO observations\n(\n    user_id,\n    road,\n    role,\n    recorded_date,\n    recorded_time,\n    observation,\n    created_at\n)\nVALUES\n(\n    '{{ $json.body.user_id }}',\n    '{{ $json.body.road }}',\n    '{{ $json.body.role }}',\n    '{{ $json.body.recorded_date }}',\n    '{{ $json.body.recorded_time }}',\n    '{{ $json.body.observation }}',\n    CONVERT_TZ(UTC_TIMESTAMP(), 'UTC', 'Asia/Kolkata')\n);",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.mySql",
+      "typeVersion": 2.5,
+      "position": [
+        -2096,
+        1088
+      ],
+      "id": "def34558-276f-4262-b7d5-e8c418b6595a",
+      "name": "insert into observation",
+      "credentials": {
+        "mySql": {
+          "id": "wNwT0cyP8PUJqltJ",
+          "name": "MySQL account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "upsert",
+        "table": {
+          "__rl": true,
+          "value": "confirmed_observations",
+          "mode": "list",
+          "cachedResultName": "confirmed_observations"
+        },
+        "dataMode": "defineBelow",
+        "columnToMatchOn": "road",
+        "valueToMatchOn": "={{ $('Webhook2').item.json.body.road }}",
+        "valuesToSend": {
+          "values": [
+            {
+              "column": "recorded_date",
+              "value": "={{ $('Webhook2').item.json.body.recorded_date }}"
+            },
+            {
+              "column": "recorded_time",
+              "value": "={{ $('Webhook2').item.json.body.recorded_time.substring(0, 5) + ':00' }}"
+            },
+            {
+              "column": "observation",
+              "value": "={{ $json.observation }}"
+            },
+            {
+              "column": "=source",
+              "value": "={{ $('Webhook2').item.json.body.role }}"
+            },
+            {
+              "column": "user_count",
+              "value": "={{ $json.observation_count }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.mySql",
+      "typeVersion": 2.5,
+      "position": [
+        -160,
+        736
+      ],
+      "id": "a7833a61-cdda-4071-8f84-2363ed9257c5",
+      "name": "Insert or update rows in a table1",
+      "credentials": {
+        "mySql": {
+          "id": "wNwT0cyP8PUJqltJ",
+          "name": "MySQL account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "71dd262e-7e90-40a9-94c6-804b29f7f434",
+              "leftValue": "={{ $json.total_users }}",
+              "rightValue": 3,
+              "operator": {
+                "type": "number",
+                "operation": "gte"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        -720,
+        1024
+      ],
+      "id": "e90c041a-bcc1-4aee-9682-5d2d4cde4a5d",
+      "name": "If6"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "DELETE FROM confirmed_observations\nWHERE road = '{{ $(\"Webhook2\").item.json.body.road }}'\n  AND recorded_date = '{{ $(\"Webhook2\").item.json.body.recorded_date }}'\n  AND recorded_time = '{{ $('Webhook2').item.json.body.recorded_time.substring(0, 5) + ':00' }}'\n  AND source = 'USER';",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.mySql",
+      "typeVersion": 2.5,
+      "position": [
+        -160,
+        992
+      ],
+      "id": "234ff5eb-4d59-4649-a6eb-3af00f69db0e",
+      "name": "delete from confirmed table",
+      "credentials": {
+        "mySql": {
+          "id": "wNwT0cyP8PUJqltJ",
+          "name": "MySQL account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "upsert",
+        "table": {
+          "__rl": true,
+          "value": "confirmed_observations",
+          "mode": "list",
+          "cachedResultName": "confirmed_observations"
+        },
+        "dataMode": "defineBelow",
+        "columnToMatchOn": "road",
+        "valueToMatchOn": "={{ $('Webhook2').item.json.body.road }}",
+        "valuesToSend": {
+          "values": [
+            {
+              "column": "recorded_date",
+              "value": "={{ $('Webhook2').item.json.body.recorded_date }}"
+            },
+            {
+              "column": "recorded_time",
+              "value": "={{ $('Webhook2').item.json.body.recorded_time }}"
+            },
+            {
+              "column": "observation",
+              "value": "={{ $('Webhook2').item.json.body.observation }}"
+            },
+            {
+              "column": "=source",
+              "value": "={{ $('Webhook2').item.json.body.role }}"
+            },
+            {
+              "column": "user_count",
+              "value": "0"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.mySql",
+      "typeVersion": 2.5,
+      "position": [
+        -1872,
+        1088
+      ],
+      "id": "0605ca73-3abe-47a2-b6cd-98e0dffbfa93",
+      "name": "inser Admin observation to confirmed table",
+      "credentials": {
+        "mySql": {
+          "id": "wNwT0cyP8PUJqltJ",
+          "name": "MySQL account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE users\nSET scam_count = scam_count + 1\nWHERE user_id = '{{ $('Webhook2').item.json.body.user_id }}';\n",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.mySql",
+      "typeVersion": 2.5,
+      "position": [
+        -1408,
+        608
+      ],
+      "id": "55050edf-4aba-4aa6-b1b8-56ca2822672d",
+      "name": "increasing the spam count",
+      "credentials": {
+        "mySql": {
+          "id": "wNwT0cyP8PUJqltJ",
+          "name": "MySQL account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT\n    id,\n    user_id,\n    status,\n    scam_count,\n    blocked_until\nFROM users\nWHERE user_id = '{{ $('Webhook2').item.json.body.user_id }}';",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.mySql",
+      "typeVersion": 2.5,
+      "position": [
+        -1184,
+        608
+      ],
+      "id": "5b6ae207-e195-4ecc-bca3-0482a1573048",
+      "name": "data from users",
+      "credentials": {
+        "mySql": {
+          "id": "wNwT0cyP8PUJqltJ",
+          "name": "MySQL account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE users\nSET\n    status = 'ACTIVE',\n    scam_count = 0,\n    blocked_until = NULL\nWHERE\n    status = 'BLOCKED'\n    AND blocked_until IS NOT NULL\n    AND blocked_until <= NOW();",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.mySql",
+      "typeVersion": 2.5,
+      "position": [
+        -1488,
+        -416
+      ],
+      "id": "dd167745-d8b0-4b6a-b630-f0a915fdd500",
+      "name": "unblocking user",
+      "credentials": {
+        "mySql": {
+          "id": "wNwT0cyP8PUJqltJ",
+          "name": "MySQL account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT\n    id,\n    road,\n    average_speed,\n    vehicle_count,\n    recorded_date,\n    recorded_time,\n    temperature,\n    humidity\nFROM traffic_data\nWHERE road = '{{ $('Webhook1').item.json.body.road }}'\n  AND recorded_date >= DATE_SUB('{{ $('Webhook1').item.json.body.recorded_date }}', INTERVAL 20 DAY)\n  AND recorded_date <= '{{ $('Webhook1').item.json.body.recorded_date }}'\n  AND recorded_time >= SUBTIME('{{ $('Webhook1').item.json.body.recorded_time }}', '00:30:00')\n  AND recorded_time <= '{{ $('Webhook1').item.json.body.recorded_time }}'\nORDER BY recorded_date DESC, recorded_time ASC;",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.mySql",
+      "typeVersion": 2.5,
+      "position": [
+        -2288,
+        -48
+      ],
+      "id": "8fefb4b8-f408-4b7e-82f9-b66f183a62d3",
+      "name": "Taking data from traffic_data table",
+      "credentials": {
+        "mySql": {
+          "id": "wNwT0cyP8PUJqltJ",
+          "name": "MySQL account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "table": {
+          "__rl": true,
+          "value": "traffic_analysis",
+          "mode": "list",
+          "cachedResultName": "traffic_analysis"
+        },
+        "dataMode": "defineBelow",
+        "valuesToSend": {
+          "values": [
+            {
+              "column": "road",
+              "value": "={{ $json.output.road }}"
+            },
+            {
+              "column": "average_speed",
+              "value": "={{ $json.output.average_speed }}"
+            },
+            {
+              "column": "vehicle_count",
+              "value": "={{ $json.output.vehicle_count }}"
+            },
+            {
+              "column": "congestion",
+              "value": "={{ $json.output.congestion }}"
+            },
+            {
+              "column": "severity",
+              "value": "={{ $json.output.severity }}"
+            },
+            {
+              "column": "temperature",
+              "value": "={{ $json.output.temperature }}"
+            },
+            {
+              "column": "humidity",
+              "value": "={{ $json.output.humidity }}"
+            },
+            {
+              "column": "prediction",
+              "value": "={{ $json.output.prediction }}"
+            },
+            {
+              "column": "reason",
+              "value": "={{ $json.output.reason }}"
+            },
+            {
+              "column": "recommended_action",
+              "value": "={{ $json.output.recommended_action }}"
+            },
+            {
+              "column": "summary",
+              "value": "={{ $json.output.summary }}"
+            },
+            {
+              "column": "analysis_date",
+              "value": "={{ $('Webhook1').item.json.body.recorded_date.substring(0, 10) }}"
+            },
+            {
+              "column": "analysis_time",
+              "value": "={{ $('Webhook1').item.json.body.recorded_time }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.mySql",
+      "typeVersion": 2.5,
+      "position": [
+        -1360,
+        -48
+      ],
+      "id": "38d5f2d6-dab4-4304-a3a1-8b9e60085ee0",
+      "name": "insert data into traffic_analysis table",
+      "credentials": {
+        "mySql": {
+          "id": "wNwT0cyP8PUJqltJ",
+          "name": "MySQL account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "table": {
+          "__rl": true,
+          "value": "traffic_data",
+          "mode": "list",
+          "cachedResultName": "traffic_data"
+        },
+        "dataMode": "defineBelow",
+        "valuesToSend": {
+          "values": [
+            {
+              "column": "road",
+              "value": "={{ $json.body.road }}"
+            },
+            {
+              "column": "average_speed",
+              "value": "={{ $json.body.average_speed }}"
+            },
+            {
+              "column": "vehicle_count",
+              "value": "={{ $json.body.vehicle_count }}"
+            },
+            {
+              "column": "temperature",
+              "value": "={{ $json.body.temperature }}"
+            },
+            {
+              "column": "humidity",
+              "value": "={{ $json.body.humidity }}"
+            },
+            {
+              "column": "recorded_date",
+              "value": "={{ $json.body.recorded_date }}"
+            },
+            {
+              "column": "recorded_time",
+              "value": "={{ $json.body.recorded_time }}"
+            },
+            {
+              "column": "device_id",
+              "value": "={{ $json.body.Device_Id }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.mySql",
+      "typeVersion": 2.5,
+      "position": [
+        -2288,
+        -416
+      ],
+      "id": "0499de71-813e-4b6c-aa29-cdcf4b42af0d",
+      "name": "insert sensor data",
+      "credentials": {
+        "mySql": {
+          "id": "wNwT0cyP8PUJqltJ",
+          "name": "MySQL account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT COUNT(*) AS admin_observation\nFROM observations\nWHERE role = 'ADMIN'\nAND road = '{{ $(\"Webhook2\").item.json.body.road }}'\nAND recorded_date = '{{ $('Webhook2').item.json.body.recorded_date }}'\nAND recorded_time = '{{ $('Webhook2').item.json.body.recorded_time }}'",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.mySql",
+      "typeVersion": 2.5,
+      "position": [
+        -1408,
+        928
+      ],
+      "id": "610bfc17-8642-46fa-aa24-2eebdc94974d",
+      "name": "admin_observation",
+      "alwaysOutputData": false,
+      "credentials": {
+        "mySql": {
+          "id": "wNwT0cyP8PUJqltJ",
+          "name": "MySQL account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "511b649b-272e-4626-b44c-81b0e7c7f06a",
+              "leftValue": "={{ $json.admin_observation }}",
+              "rightValue": 0,
+              "operator": {
+                "type": "number",
+                "operation": "gt"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        -1184,
+        928
+      ],
+      "id": "bb51752d-4993-42bb-a3a3-8374ace34d8f",
+      "name": "If5"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "insert sensor data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook1": {
+      "main": [
+        [
+          {
+            "node": "Taking data from traffic_data table",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook2": {
+      "main": [
+        [
+          {
+            "node": "If4",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If": {
+      "main": [
+        [
+          {
+            "node": "increasing the spam count",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "admin_observation",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Insert_Observation": {
+      "main": [
+        [
+          {
+            "node": "Recent_Count",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Recent_Count": {
+      "main": [
+        [
+          {
+            "node": "If",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Selecting_Highest_Count": {
+      "main": [
+        [
+          {
+            "node": "If6",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If1": {
+      "main": [
+        [
+          {
+            "node": "Execute a SQL query4",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Schedule Trigger": {
+      "main": [
+        [
+          {
+            "node": "unblocking user",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If2": {
+      "main": [
+        [
+          {
+            "node": "Insert or update rows in a table1",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "delete from confirmed table",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code in JavaScript2": {
+      "main": [
+        [
+          {
+            "node": "AI Agent2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send a message in Gmail2": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent2",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Agent2": {
+      "main": [
+        [
+          {
+            "node": "insert data into traffic_analysis table",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Structured Output Parser2": {
+      "ai_outputParser": [
+        [
+          {
+            "node": "AI Agent2",
+            "type": "ai_outputParser",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenRouter Chat Model2": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "AI Agent2",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If4": {
+      "main": [
+        [
+          {
+            "node": "Insert_Observation",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "insert into observation",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "insert into observation": {
+      "main": [
+        [
+          {
+            "node": "inser Admin observation to confirmed table",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If6": {
+      "main": [
+        [
+          {
+            "node": "If2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "increasing the spam count": {
+      "main": [
+        [
+          {
+            "node": "data from users",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "data from users": {
+      "main": [
+        [
+          {
+            "node": "If1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Taking data from traffic_data table": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "insert data into traffic_analysis table": {
+      "main": [
+        [
+          {
+            "node": "Respond to Webhook",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Insert or update rows in a table1": {
+      "main": [
+        []
+      ]
+    },
+    "admin_observation": {
+      "main": [
+        [
+          {
+            "node": "If5",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If5": {
+      "main": [
+        [],
+        [
+          {
+            "node": "Selecting_Highest_Count",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false
+  },
+  "versionId": "dee6c851-f4ea-49a4-8ed5-d67d32dd0616",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "137a369067493a0a1415c0ed4e17916840532e27327b8aafe1a798cbc4b7bc89"
+  },
+  "nodeGroups": [],
+  "id": "sixq3THXxWj1Ny7W",
+  "tags": []
+}
